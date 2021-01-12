@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 from dirty_cat import SimilarityEncoder
+from pathlib import Path
 
 
 def loguniform(low=0, high=1, size=None, base=10):
@@ -21,23 +22,16 @@ def encode_dates(df, column):
     return df
 
 
-def preprocess(df, encode, categorize, preran):
-    y = df["area"]
-    X = df.drop(
-        ["area"],
-        axis=1,
-    )
-
-    X.info()
-
+def preprocess(X, encode, n_prototypes, train):
+    X = X.copy()
     if encode:
         encode_columns = []
-        n_prototypes = 5
-        if not preran:
+        if train:
             enc = SimilarityEncoder(
                 similarity="ngram", categories="k-means", n_prototypes=n_prototypes
             )
             enc.fit(X[encode_columns].values)
+            Path("encoders").mkdir(exist_ok=True)
             pd.to_pickle(enc, "encoders/similarity_encoder.pickle")
         else:
             enc = pd.read_pickle("encoders/similarity_encoder.pickle")
@@ -51,8 +45,4 @@ def preprocess(df, encode, categorize, preran):
         transformed_values.columns = transformed_columns
         X = pd.concat([X, transformed_values], axis=1)
         X = X.drop(encode_columns, axis=1)
-
-    if categorize:
-        obj_cols = X.select_dtypes("object").columns
-        X[obj_cols] = X[obj_cols].astype("category")
-    return X, y
+    return X
