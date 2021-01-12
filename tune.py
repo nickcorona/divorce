@@ -3,25 +3,20 @@ from pathlib import Path
 import lightgbm as lgb
 import matplotlib.pyplot as plt
 import numpy as np
-from numpy.core.fromnumeric import mean
-from numpy.core.numeric import True_
 import pandas as pd
 import seaborn as sns
-from category_encoders import OneHotEncoder, OrdinalEncoder  # sometimes appropriate
-from dirty_cat import (
-    SimilarityEncoder,
-)  # for encoding "dirty" categoricals; often outperforms one-hot encoding
-from dirty_cat import TargetEncoder  # sometimes worth trying
+from category_encoders import (OneHotEncoder,  # sometimes appropriate
+                               OrdinalEncoder)
+from dirty_cat import \
+    TargetEncoder  # for encoding "dirty" categoricals; often outperforms one-hot encoding; sometimes worth trying
+from dirty_cat import SimilarityEncoder
+from numpy.core.fromnumeric import mean
 from sklearn.model_selection import train_test_split
 from statsmodels.nonparametric.smoothers_lowess import lowess
 
 from helpers import encode_dates, loguniform, preprocess
 
-df = pd.read_csv(
-    r"data\forestfires.csv",
-    parse_dates=[],
-    index_col=[],
-)
+df = pd.read_csv(r"data\divorce_data.csv", parse_dates=[], index_col=[], delimiter=";")
 
 print(
     pd.concat([df.dtypes, df.nunique() / len(df)], axis=1)
@@ -29,9 +24,11 @@ print(
     .sort_values(["dtype", "proportion unique"])
 )
 
-ENCODE = True
+ENCODE = False
 CATEGORIZE = True
-X, y = preprocess(df, False, True, False)
+y = df["Divorce"]
+df = df.drop("Divorce", axis=1)
+X = preprocess(df, ENCODE, 5, True)
 sns.kdeplot(y)
 plt.title("KDE distribution")
 plt.show()
@@ -49,8 +46,8 @@ Xs, ys = Xt.loc[sample_idx], yt.loc[sample_idx]
 ds = lgb.Dataset(Xs, ys)
 dv = lgb.Dataset(Xv, yv, free_raw_data=False)
 
-OBJECTIVE = "rmse"
-METRIC = "rmse"
+OBJECTIVE = "binary"
+METRIC = "binary_logloss"
 MAXIMIZE = False
 EARLY_STOPPING_ROUNDS = 10
 MAX_ROUNDS = 10000
@@ -85,8 +82,8 @@ for _ in range(60):
     params["learning_rate"] = eta
     model = lgb.train(
         params,
-        ds,
-        valid_sets=[ds, dv],
+        dt,
+        valid_sets=[dt, dv],
         valid_names=["training", "valid"],
         num_boost_round=MAX_ROUNDS,
         early_stopping_rounds=EARLY_STOPPING_ROUNDS,
@@ -151,9 +148,10 @@ if correlation:
     drop_dict = {pair: [] for pair in pairs}
     for pair in pairs:
         for feature in pair:
-            correlated_features.add(feature)
+            drop_set = correlated_features.copy()
+            drop_set.add(feature)
             Xt, Xv, yt, yv = train_test_split(
-                X.drop(correlated_features, axis=1), y, random_state=SEED
+                X.drop(drop_set, axis=1), y, random_state=SEED
             )
             Xs, ys = Xt.loc[sample_idx], yt.loc[sample_idx]
             dt = lgb.Dataset(
@@ -176,9 +174,8 @@ if correlation:
                 verbose_eval=False,
             )
             drop_dict[pair].append(drop_model.best_score["valid"][METRIC])
-            correlated_features.remove(feature)  # remove from drop list
         pair_min = np.min(drop_dict[pair])
-        if pair_min <= best_score:
+        if pair_min < best_score:
             drop_feature = pair[
                 np.argmin(drop_dict[pair])
             ]  # add to drop_feature the one that reduces score
@@ -307,3 +304,9 @@ for key, value in best_params.items():
     print(f"    {key}: {value}")
 
 print(f"Dropped features: {dropped_features}")
+
+lgb.plot_importance(model, grid=False, max_num_features=20, importance_type="gain")
+plt.show()
+
+from sklearn.metrics import accuracy_score
+accuracy_score(yv, model.predict(Xv, num_iteration=model.best_iteration)>0.5)
