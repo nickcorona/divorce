@@ -1,1 +1,1 @@
-kaggle datasets download -d elikplim/forest-fires-data-set
+kaggle datasets download -d andrewmvd/divorce-prediction
